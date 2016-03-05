@@ -125,7 +125,7 @@ def save_files(files):
 
 def file_exist(files_list, f):
     for e in files_list:
-        if e['name'] == f['name'] and e['saved_name'] == f['saved_name'] and e['id'] == f['id']:
+        if e['name'] == f['name'] and e['saved_name'] == f['saved_name'] and e['id'] == f['id'] and e['path'] == f['path']:
             return True
     return False
 
@@ -156,6 +156,7 @@ def do_backup(files):
         cur_f['name'] = f['name']
         cur_f['saved_name'] = u'{}-{}'.format(f['timestamp'], f['name'])
         cur_f['id'] = f['id']
+        cur_f['path'] = '{}/{}-{}'.format(backup_team_folder_path(), f['timestamp'], f['name'])
         # file do not exist get + add it to the db
         sys.stdout.write(u'{}/{} '.format(file_it, file_cnt))
         sys.stdout.flush()
