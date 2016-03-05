@@ -15,6 +15,7 @@ CookieFilePath='cookies.txt'
 SavedFilesDB='.slut-bak.json'
 TeamInfoDb='.team-bak.json'
 LsDb='.ls-bak.json'
+UserDb='.user-bak.json'
 TeamName=''
 
 should_exit=False
@@ -23,6 +24,26 @@ def signal_handler(signal, frame):
     global should_exit
     should_exit = True
     print 'slut.py asked to exit, cleaning up'
+
+def ls_db_path():
+    return '.'+TeamName+'/'+LsDb
+
+def team_info_db_path():
+    return '.'+TeamName+'/'+TeamInfoDb
+
+def saved_files_db_path():
+    return '.'+TeamName+'/'+SavedFilesDB
+
+def backup_team_folder_path():
+    return BackupFolderPath+'/'+TeamName
+
+def user_db_path():
+    return '.'+TeamName+'/'+UserDb
+
+def ensure_team_folder_exists():
+    # if not exist create it
+    if not os.path.exists('.'+TeamName):
+        os.makedirs('.'+TeamName)
 
 def make_request(request_str):
     # try to get the data from the current page
@@ -57,9 +78,6 @@ def get_files_for_page(current_page, max_pages):
 
     return lst
 
-def ls_db_path():
-    return '.'+TeamName+'/'+LsDb
-
 def get_all_files_list(pages_count, should_update):
     # if data already exist
     if not should_update:
@@ -81,9 +99,6 @@ def get_all_files_list(pages_count, should_update):
         json.dump(files, outfile, indent=2)
 
     return files
-
-def team_info_db_path():
-    return '.'+TeamName+'/'+TeamInfoDb
 
 def get_team_name():
     global TeamName
@@ -107,13 +122,34 @@ def get_team_name():
     TeamName = json_value['team']['domain']
     print '{}'.format(json_value['team']['name'])
 
-    # build folder if not exist
-    if not os.path.exists('.'+TeamName):
-        os.makedirs('.'+TeamName)
+    ensure_team_folder_exists()
 
     # save team info
     with open(team_info_db_path(), 'wb') as outfile:
         json.dump(json_value, outfile, indent=2)
+
+def get_user_list():
+    # if data already exist
+    if os.path.exists(user_db_path()):
+        with open(user_db_path(), 'rb') as f:
+            j = json.loads(f.read())
+            return j
+
+    # else
+    request_str = 'https://slack.com/api/users.list?token={}'.format(AdminToken)
+    json_value = make_request(request_str)
+
+    if json_value['ok'] != True:
+        print 'valid request but not enough rights, check your token'
+        sys.exit(0)
+
+    ensure_team_folder_exists()
+
+    # save user info
+    with open(user_db_path(), 'wb') as outfile:
+        json.dump(json_value, outfile, indent=2)
+
+    return json_value
 
 def get_pages_count():
     # generete the url for the request
@@ -152,9 +188,6 @@ def parse_args():
 
     return parser.parse_args()
 
-def saved_files_db_path():
-    return '.'+TeamName+'/'+SavedFilesDB
-
 def get_saved_files():
     if os.path.exists(saved_files_db_path()):
         with open(saved_files_db_path(), 'rb') as f:
@@ -170,9 +203,6 @@ def file_exist(files_list, f):
         if e['name'] == f['name'] and e['saved_name'] == f['saved_name'] and e['id'] == f['id'] and e['path'] == f['path']:
             return True
     return False
-
-def backup_team_folder_path():
-    return BackupFolderPath+'/'+TeamName
 
 def do_backup(files):
     # build user specified folder if not exist
@@ -216,9 +246,18 @@ def do_backup(files):
         file_it+=1
     save_files(saved_files)
 
+def user_name_from_id(user_id, users):
+    for user in users:
+        if user_id == user['id']:
+            return user['name']
+    return ""
+
 def do_ls(files):
+    users = get_user_list()["members"]
+
     for f in files:
-        print u'{} {} {}'.format(f['id'], time.ctime(f['timestamp']), f['name'])
+        uname = user_name_from_id(f['user'], users)
+        print u'{} {} {} {}'.format(f['id'], uname, time.ctime(f['timestamp']), f['name']).encode('unicode-escape')
 
 def do_remove(files, days):
     print files
@@ -242,6 +281,9 @@ def main():
 
     # retrieve team nam
     get_team_name()
+
+    # get user list
+    get_user_list()
 
     # get pages count
     pages_count = get_pages_count()
