@@ -1,11 +1,10 @@
-#!/usr/local/bin/python
+#!/usr/bin/python
 
 import requests
 import argparse
 import subprocess
 import json
 import signal
-import wget
 import sys
 import os
 
@@ -13,6 +12,7 @@ AdminToken=''
 BackupFolderPath='./backup'
 CookieFilePath='cookies.txt'
 SavedFilesDB='.slut-bak.json'
+TeamName=''
 
 should_exit=False
 
@@ -63,6 +63,23 @@ def get_all_files_list(pages_count):
         files = files + get_files_for_page(p, pages_count)
     return files
 
+def get_team_name():
+    global TeamName
+    print 'retrieving team information'
+
+    request_str = 'https://slack.com/api/team.info?token={}'.format(AdminToken)
+    json = make_request(request_str)
+
+    if json['ok'] != True:
+        print 'valid request but not enough rights, check your token'
+        sys.exit(0)
+
+    TeamName = json['team']['domain']
+
+    # build folder if not exist
+    if not os.path.exists('.'+TeamName):
+        os.makedirs('.'+TeamName)
+
 def get_pages_count():
     # generete the url for the request
     request_str = 'https://slack.com/api/files.list?token={}'.format(AdminToken)
@@ -93,14 +110,17 @@ def parse_args():
 
     return parser.parse_args()
 
+def saved_files_db_path():
+    return '.'+TeamName+'/'+SavedFilesDB
+
 def get_saved_files():
-    if os.path.exists(SavedFilesDB):
-        with open(SavedFilesDB, 'rb') as f:
+    if os.path.exists(saved_files_db_path()):
+        with open(saved_files_db_path(), 'rb') as f:
             return json.loads(f.read())
     return []
 
 def save_files(files):
-    with open(SavedFilesDB, 'wb') as outfile:
+    with open(saved_files_db_path(), 'wb') as outfile:
         json.dump(files, outfile, indent=2)
 
 def file_exist(files_list, f):
@@ -109,10 +129,16 @@ def file_exist(files_list, f):
             return True
     return False
 
+def backup_team_folder_path():
+    return BackupFolderPath+'/'+TeamName
+
 def do_backup(files):
-    # build folder if not exist
+    # build user specified folder if not exist
     if not os.path.exists(BackupFolderPath):
         os.makedirs(BackupFolderPath)
+    # build team folder if not exist
+    if not os.path.exists(backup_team_folder_path()):
+        os.makedirs(backup_team_folder_path())
 
     # get list of already saved files
     saved_files = get_saved_files()
@@ -138,12 +164,12 @@ def do_backup(files):
                 u'wget',
                 u'--no-verbose',
                 u'--load-cookies={}'.format(CookieFilePath),
-                u'--output-document={}/{}-{}'.format(BackupFolderPath, f['timestamp'], f['name']),
+                u'--output-document={}/{}-{}'.format(backup_team_folder_path(), f['timestamp'], f['name']),
                 f['url_private']])
             saved_files.append(cur_f)
         # file exist do nothin
         else:
-            print u'{}/{}-{} already exist.'.format(BackupFolderPath, f['timestamp'], f['name'])
+            print u'{}/{}-{} already exist.'.format(backup_team_folder_path(), f['timestamp'], f['name'])
         file_it+=1
     save_files(saved_files)
 
@@ -166,6 +192,10 @@ def main():
         sys.exit(0)
     else:
         AdminToken = raw_args.token[0]
+
+    # retrieve team nam
+    get_team_name()
+    print 'team name: {}'.format(TeamName)
 
     # get pages count
     pages_count = get_pages_count()
