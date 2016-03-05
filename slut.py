@@ -3,6 +3,7 @@
 import requests
 import argparse
 import subprocess
+import time
 import json
 import signal
 import sys
@@ -12,6 +13,8 @@ AdminToken=''
 BackupFolderPath='./backup'
 CookieFilePath='cookies.txt'
 SavedFilesDB='.slut-bak.json'
+TeamInfoDb='.team-bak.json'
+LsDb='.ls-bak.json'
 TeamName=''
 
 should_exit=False
@@ -54,31 +57,63 @@ def get_files_for_page(current_page, max_pages):
 
     return lst
 
-def get_all_files_list(pages_count):
+def ls_db_path():
+    return '.'+TeamName+'/'+LsDb
+
+def get_all_files_list(pages_count, should_update):
+    # if data already exist
+    if not should_update:
+        if os.path.exists(ls_db_path()):
+            with open(ls_db_path(), 'rb') as f:
+                j = json.loads(f.read())
+                return j
+
+    # else retrieve data
     print 'retrieving list of all available files ({} pages)'.format(pages_count)
     files = []
     for p in range(1, pages_count+1):
         if should_exit:
             return []
         files = files + get_files_for_page(p, pages_count)
+
+    # save in file
+    with open(ls_db_path(), 'wb') as outfile:
+        json.dump(files, outfile, indent=2)
+
     return files
+
+def team_info_db_path():
+    return '.'+TeamName+'/'+TeamInfoDb
 
 def get_team_name():
     global TeamName
-    print 'retrieving team information'
+    print 'retrieving team information:',
 
+    # if data already exist
+    if os.path.exists(team_info_db_path()):
+        with open(team_info_db_path(), 'rb') as f:
+            j = json.loads(f.read())
+            print '{}'.format(j['team']['name'])
+            return
+
+    # else
     request_str = 'https://slack.com/api/team.info?token={}'.format(AdminToken)
-    json = make_request(request_str)
+    json_value = make_request(request_str)
 
-    if json['ok'] != True:
-        print 'valid request but not enough rights, check your token'
+    if json_value['ok'] != True:
+        print '\nvalid request but not enough rights, check your token'
         sys.exit(0)
 
-    TeamName = json['team']['domain']
+    TeamName = json_value['team']['domain']
+    print '{}'.format(json_value['team']['name'])
 
     # build folder if not exist
     if not os.path.exists('.'+TeamName):
         os.makedirs('.'+TeamName)
+
+    # save team info
+    with open(team_info_db_path(), 'wb') as outfile:
+        json.dump(json_value, outfile, indent=2)
 
 def get_pages_count():
     # generete the url for the request
@@ -103,10 +138,17 @@ def parse_args():
     parser_backup.add_argument('--token', nargs='+', help='the token to use to launch requests')
     parser_backup.add_argument('--cookies', nargs='+', help='path to the cookies to retrieve files')
     parser_backup.add_argument('--output', nargs='+', help='path to save the files')
+    parser_backup.add_argument('--update', action='store_true', help='force update of the local db')
 
     # create the parser for the rm command
     parser_rm = subparsers.add_parser('rm', help='remove files from slack')
     parser_rm.add_argument('rm_value', nargs='?', default='30', help='remove files from slack')
+    parser_rm.add_argument('--token', nargs='+', help='the token to use to launch requests')
+
+    parser_ls = subparsers.add_parser('ls', help='list files uploaded on slack')
+    parser_ls.add_argument('ls_value', nargs='?', default='30', help='list files uploaded slack')
+    parser_ls.add_argument('--update', action='store_true', help='force update of the local db')
+    parser_ls.add_argument('--token', nargs='+', help='the token to use to launch requests')
 
     return parser.parse_args()
 
@@ -174,6 +216,10 @@ def do_backup(files):
         file_it+=1
     save_files(saved_files)
 
+def do_ls(files):
+    for f in files:
+        print u'{} {} {}'.format(f['id'], time.ctime(f['timestamp']), f['name'])
+
 def do_remove(files, days):
     print files
 
@@ -196,13 +242,12 @@ def main():
 
     # retrieve team nam
     get_team_name()
-    print 'team name: {}'.format(TeamName)
 
     # get pages count
     pages_count = get_pages_count()
 
     # iterate over all pages
-    files = get_all_files_list(pages_count)
+    files = get_all_files_list(pages_count, raw_args.update)
 
     # backup
     if 'backup_value' in args.keys():
@@ -217,6 +262,8 @@ def main():
         else:
             BackupFolderPath = raw_args.output[0]
         do_backup(files)
+    elif 'ls_value' in args.keys():
+        do_ls(files)
     elif 'rm_value' in args.keys():
         do_remove(files, args['rm_value'])
 
